@@ -23,7 +23,8 @@ const Index = () => {
         .from('subscriptions')
         .select('*')
         .eq('user_id', session.user.id)
-        .eq('status', 'active');
+        .eq('status', 'active')
+        .single();
 
       if (subscriptionError) {
         console.error('Error checking subscription:', subscriptionError);
@@ -31,11 +32,15 @@ const Index = () => {
         return;
       }
 
-      // If no subscription or empty array, redirect to register
-      if (!subscriptionData || subscriptionData.length === 0) {
-        navigate("/register");
-        toast.info("Please subscribe to continue");
+      // If subscription is active, redirect to dashboard
+      if (subscriptionData) {
+        navigate("/dashboard");
+        return;
       }
+
+      // If no active subscription, redirect to register
+      navigate("/register");
+      toast.info("Please subscribe to continue");
     };
 
     checkAuth();
