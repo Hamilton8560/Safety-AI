@@ -1,0 +1,10 @@
+project_id = "hmcaajyrprstvhunbagl"
+
+[check-subscription]
+verify_jwt = true
+
+[create-checkout]
+verify_jwt = true
+
+[stripe-webhook]
+verify_jwt = false
