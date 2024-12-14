@@ -55,24 +55,24 @@ serve(async (req) => {
     
     if (file.type === 'application/pdf') {
       try {
-        // Convert file to base64
+        // Convert file to array buffer and then to base64
         const arrayBuffer = await file.arrayBuffer()
-        const base64String = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
-
-        // Split large documents into chunks
-        const maxChunkSize = 500000 // 500KB chunks
-        const totalSize = base64String.length
-        const chunks = Math.ceil(totalSize / maxChunkSize)
+        const uint8Array = new Uint8Array(arrayBuffer)
+        
+        // Process in smaller chunks to avoid stack overflow
+        const chunkSize = 250000 // 250KB chunks
+        const chunks = Math.ceil(uint8Array.length / chunkSize)
+        let allText = ''
         
         console.log(`Processing PDF in ${chunks} chunks`)
         
-        let allText = ''
-        
-        // Process document in chunks
         for (let i = 0; i < chunks; i++) {
-          const start = i * maxChunkSize
-          const end = Math.min((i + 1) * maxChunkSize, totalSize)
-          const chunk = base64String.slice(start, end)
+          const start = i * chunkSize
+          const end = Math.min((i + 1) * chunkSize, uint8Array.length)
+          const chunk = uint8Array.slice(start, end)
+          
+          // Convert chunk to base64
+          const chunkBase64 = btoa(String.fromCharCode.apply(null, [...chunk]))
           
           console.log(`Processing chunk ${i + 1} of ${chunks}`)
           
@@ -99,7 +99,7 @@ serve(async (req) => {
                     {
                       type: 'image_url',
                       image_url: {
-                        url: `data:application/pdf;base64,${chunk}`
+                        url: `data:application/pdf;base64,${chunkBase64}`
                       }
                     }
                   ]
@@ -110,16 +110,17 @@ serve(async (req) => {
           })
 
           if (!response.ok) {
-            console.error(`OpenAI API error for chunk ${i + 1}:`, await response.text())
+            const errorText = await response.text()
+            console.error(`OpenAI API error for chunk ${i + 1}:`, errorText)
             throw new Error(`OpenAI API error: ${response.statusText}`)
           }
 
           const data = await response.json()
           allText += data.choices[0].message.content + '\n'
           
-          // Add a small delay between chunks to avoid rate limiting
+          // Add a delay between chunks to avoid rate limiting
           if (i < chunks - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1000))
+            await new Promise(resolve => setTimeout(resolve, 2000))
           }
         }
         

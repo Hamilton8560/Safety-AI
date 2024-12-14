@@ -24,7 +24,7 @@ const Index = () => {
         .select('*')
         .eq('user_id', session.user.id)
         .eq('status', 'active')
-        .single();
+        .limit(1); // Only get the most recent active subscription
 
       if (subscriptionError) {
         console.error('Error checking subscription:', subscriptionError);
@@ -32,8 +32,8 @@ const Index = () => {
         return;
       }
 
-      // If subscription is active, redirect to dashboard
-      if (subscriptionData) {
+      // If at least one active subscription exists, redirect to dashboard
+      if (subscriptionData && subscriptionData.length > 0) {
         navigate("/dashboard");
         return;
       }
