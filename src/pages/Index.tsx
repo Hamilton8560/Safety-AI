@@ -1,9 +1,46 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Shield, CheckCircle, Lock, Users } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const Index = () => {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        navigate("/login");
+        return;
+      }
+
+      // Check if user has an active subscription
+      const { data: subscriptionData, error: subscriptionError } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .eq('status', 'active')
+        .single();
+
+      if (subscriptionError) {
+        console.error('Error checking subscription:', subscriptionError);
+        toast.error("Failed to check subscription status");
+        return;
+      }
+
+      if (!subscriptionData) {
+        navigate("/register");
+        toast.info("Please subscribe to continue");
+      }
+    };
+
+    checkAuth();
+  }, [navigate]);
+
   return (
     <div className="min-h-screen">
       {/* Hero Section */}

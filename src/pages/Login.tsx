@@ -11,33 +11,27 @@ const Login = () => {
 
   const checkSubscription = async (session: any) => {
     try {
-      const { data, error } = await supabase.functions.invoke('check-subscription', {
-        headers: {
-          Authorization: `Bearer ${session?.access_token}`,
-        },
-      });
+      const { data: subscriptionData, error: subscriptionError } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .eq('status', 'active')
+        .single();
 
-      if (error) throw error;
+      if (subscriptionError) throw subscriptionError;
 
-      if (!data.subscribed) {
-        const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('create-checkout', {
-          headers: {
-            Authorization: `Bearer ${session?.access_token}`,
-          },
-        });
-
-        if (checkoutError) throw checkoutError;
-
-        if (checkoutData.url) {
-          window.location.href = checkoutData.url;
-        }
+      if (!subscriptionData) {
+        // No active subscription found, redirect to registration which handles subscription creation
+        navigate("/register");
+        toast.info("Please subscribe to continue");
       } else {
+        // Active subscription found, redirect to dashboard
         navigate("/");
+        toast.success("Welcome back!");
       }
     } catch (error) {
       console.error('Error:', error);
-      toast.error("Failed to process subscription");
-      navigate("/");
+      toast.error("Failed to check subscription status");
     }
   };
 
