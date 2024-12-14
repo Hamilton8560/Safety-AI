@@ -11,15 +11,21 @@ const Registration = () => {
 
   const checkSubscription = async (session: any) => {
     try {
+      console.log('Checking subscription for session:', session.user.id);
+      
       const { data, error } = await supabase.functions.invoke('check-subscription', {
+        body: { userId: session.user.id },
         headers: {
           Authorization: `Bearer ${session?.access_token}`,
         },
       });
 
+      console.log('Subscription check response:', data, error);
+
       if (error) throw error;
 
       if (!data.subscribed) {
+        console.log('No subscription found, creating checkout');
         const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('create-checkout', {
           headers: {
             Authorization: `Bearer ${session?.access_token}`,
@@ -28,16 +34,18 @@ const Registration = () => {
 
         if (checkoutError) throw checkoutError;
 
-        if (checkoutData.url) {
+        if (checkoutData?.url) {
           window.location.href = checkoutData.url;
+        } else {
+          throw new Error('No checkout URL received');
         }
       } else {
         navigate("/");
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error:', error);
-      toast.error("Failed to process subscription");
-      navigate("/");
+      toast.error(error.message || "Failed to process subscription");
+      // Don't navigate away on error, let user try again
     }
   };
 
