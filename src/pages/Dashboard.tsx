@@ -1,13 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MessageSquare, Settings, BarChart } from "lucide-react";
+import { MessageSquare, Settings, BarChart, Upload } from "lucide-react";
 import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [extractedText, setExtractedText] = useState<string>("");
+  const [isUploading, setIsUploading] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -17,7 +21,6 @@ const Dashboard = () => {
         return;
       }
 
-      // Check if user has an active subscription
       const { data: subscriptionData, error: subscriptionError } = await supabase
         .from('subscriptions')
         .select('*')
@@ -34,6 +37,62 @@ const Dashboard = () => {
 
     checkAuth();
   }, [navigate]);
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.type !== 'application/pdf') {
+        toast.error("Please select a PDF file");
+        return;
+      }
+      setSelectedFile(file);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) {
+      toast.error("Please select a file first");
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Please login first");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('userId', session.user.id);
+
+      const response = await fetch(
+        'https://hmcaajyrprstvhunbagl.supabase.co/functions/v1/process-document',
+        {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'Authorization': `Bearer ${process.env.SUPABASE_ANON_KEY}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      setExtractedText(data.extractedText);
+      toast.success("File uploaded successfully");
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error(error.message || "Failed to upload file");
+    } finally {
+      setIsUploading(false);
+    }
+  };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -87,10 +146,35 @@ const Dashboard = () => {
 
         <Card className="mb-8">
           <CardHeader>
-            <CardTitle>Chat Interface</CardTitle>
+            <CardTitle>Document Upload</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">Chat interface will be implemented here</p>
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <Input
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleFileChange}
+                  className="flex-1"
+                />
+                <Button 
+                  onClick={handleUpload}
+                  disabled={!selectedFile || isUploading}
+                >
+                  <Upload className="mr-2 h-4 w-4" />
+                  {isUploading ? "Uploading..." : "Upload"}
+                </Button>
+              </div>
+              
+              {extractedText && (
+                <div className="mt-4">
+                  <h3 className="text-lg font-semibold mb-2">Extracted Text:</h3>
+                  <div className="bg-muted p-4 rounded-md whitespace-pre-wrap">
+                    {extractedText}
+                  </div>
+                </div>
+              )}
+            </div>
           </CardContent>
         </Card>
       </main>
