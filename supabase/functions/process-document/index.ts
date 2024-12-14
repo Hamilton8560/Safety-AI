@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.7.1'
-import { PDFDocument } from 'https://cdn.skypack.dev/pdf-lib'
+import * as pdfjs from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/+esm'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -51,19 +51,28 @@ serve(async (req) => {
     if (file.type === 'application/pdf') {
       const arrayBuffer = await file.arrayBuffer()
       try {
-        // First try loading without ignoring encryption
-        const pdfDoc = await PDFDocument.load(arrayBuffer)
-        extractedText = await extractTextFromPDF(pdfDoc)
-      } catch (error) {
-        if (error.message.includes('encrypted')) {
-          // If the PDF is encrypted, try loading it with ignoreEncryption option
-          console.log('Attempting to load encrypted PDF...')
-          const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true })
-          extractedText = await extractTextFromPDF(pdfDoc)
-        } else {
-          console.error('PDF processing error:', error)
-          throw error
+        // Load the PDF document
+        const loadingTask = pdfjs.getDocument({ data: arrayBuffer })
+        const pdfDocument = await loadingTask.promise
+
+        // Get total number of pages
+        const numPages = pdfDocument.numPages
+        const textContent = []
+
+        // Extract text from each page
+        for (let i = 1; i <= numPages; i++) {
+          const page = await pdfDocument.getPage(i)
+          const content = await page.getTextContent()
+          const pageText = content.items
+            .map((item: any) => item.str)
+            .join(' ')
+          textContent.push(pageText)
         }
+
+        extractedText = textContent.join('\n\n')
+      } catch (error) {
+        console.error('PDF processing error:', error)
+        extractedText = 'Error: Could not extract text from PDF. The file might be corrupted or password protected.'
       }
     }
 
@@ -100,30 +109,3 @@ serve(async (req) => {
     )
   }
 })
-
-async function extractTextFromPDF(pdfDoc: PDFDocument): Promise<string> {
-  try {
-    const pages = pdfDoc.getPages()
-    const textContent: string[] = []
-    
-    for (const page of pages) {
-      try {
-        const content = page.doc.catalog.get(page.doc.context.obj(page.ref))
-        if (content) {
-          const text = content.get('Contents')
-          if (text) {
-            textContent.push(text.toString())
-          }
-        }
-      } catch (pageError) {
-        console.warn('Error extracting text from page:', pageError)
-        // Continue with next page even if this one fails
-      }
-    }
-    
-    return textContent.join('\n') || 'No text could be extracted from this PDF'
-  } catch (error) {
-    console.error('Error in extractTextFromPDF:', error)
-    return 'Error extracting text from PDF'
-  }
-}

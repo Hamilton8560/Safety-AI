@@ -160,6 +160,10 @@ export type Database = {
             }
             Returns: unknown
           }
+      cleanup_subscriptions: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       halfvec_avg: {
         Args: {
           "": number[]
