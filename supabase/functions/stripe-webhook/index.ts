@@ -28,11 +28,7 @@ serve(async (req) => {
     }
 
     const body = await req.text();
-    
-    // Create a TextEncoder
-    const encoder = new TextEncoder();
-    // Encode the body string to Uint8Array
-    const bodyBytes = encoder.encode(body);
+    const bodyBytes = new TextEncoder().encode(body);
     
     let event;
     try {
@@ -58,37 +54,57 @@ serve(async (req) => {
       case 'customer.subscription.updated':
       case 'customer.subscription.deleted': {
         const subscription = event.data.object;
-        const customerEmail = subscription.customer_email;
+        console.log('Processing subscription:', subscription);
         
-        if (customerEmail) {
-          const { data: users, error: userError } = await supabaseClient
-            .from('profiles')
-            .select('id')
-            .eq('email', customerEmail)
-            .single();
-
-          if (userError) {
-            throw userError;
-          }
-
-          // Update subscriptions table
-          const { error: subscriptionError } = await supabaseClient
-            .from('subscriptions')
-            .upsert({
-              user_id: users.id,
-              stripe_subscription_id: subscription.id,
-              stripe_customer_id: subscription.customer,
-              status: subscription.status,
-              price_id: subscription.items.data[0].price.id,
-              updated_at: new Date().toISOString()
-            });
-
-          if (subscriptionError) {
-            throw subscriptionError;
-          }
-
-          console.log(`Subscription ${event.type} processed for user ${users.id}`);
+        // Get customer details to find email
+        const customer = await stripe.customers.retrieve(subscription.customer);
+        console.log('Customer details:', customer);
+        
+        if (!customer.email) {
+          throw new Error('No customer email found');
         }
+
+        // Find user by email
+        const { data: users, error: userError } = await supabaseClient
+          .from('profiles')
+          .select('id')
+          .eq('email', customer.email)
+          .single();
+
+        if (userError) {
+          console.error('Error finding user:', userError);
+          throw userError;
+        }
+
+        if (!users) {
+          console.error('No user found for email:', customer.email);
+          throw new Error('User not found');
+        }
+
+        console.log('Found user:', users);
+
+        // Update subscriptions table
+        const subscriptionData = {
+          user_id: users.id,
+          stripe_subscription_id: subscription.id,
+          stripe_customer_id: subscription.customer,
+          status: subscription.status,
+          price_id: subscription.items.data[0].price.id,
+          updated_at: new Date().toISOString()
+        };
+
+        console.log('Updating subscription with data:', subscriptionData);
+
+        const { error: subscriptionError } = await supabaseClient
+          .from('subscriptions')
+          .upsert(subscriptionData);
+
+        if (subscriptionError) {
+          console.error('Error updating subscription:', subscriptionError);
+          throw subscriptionError;
+        }
+
+        console.log(`Subscription ${event.type} processed successfully for user ${users.id}`);
         break;
       }
       default:
