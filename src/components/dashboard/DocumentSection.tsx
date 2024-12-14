@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +18,7 @@ interface Document {
   id: string;
   name: string;
   created_at: string;
+  file_path: string;
 }
 
 export const DocumentSection = () => {
@@ -25,6 +26,36 @@ export const DocumentSection = () => {
   const [extractedText, setExtractedText] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
+
+  const fetchDocuments = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Please login first");
+        return;
+      }
+
+      const { data: userDocuments, error: documentsError } = await supabase
+        .from('documents')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false });
+
+      if (documentsError) {
+        console.error('Error fetching documents:', documentsError);
+        toast.error("Error loading documents");
+      } else {
+        setDocuments(userDocuments || []);
+      }
+    } catch (error) {
+      console.error('Error in fetchDocuments:', error);
+      toast.error("Failed to load documents");
+    }
+  };
+
+  useEffect(() => {
+    fetchDocuments();
+  }, []);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -74,24 +105,19 @@ export const DocumentSection = () => {
       setExtractedText(data.extractedText || '');
       toast.success("File uploaded successfully");
       
-      // Refresh documents list
-      const { data: userDocuments, error: documentsError } = await supabase
-        .from('documents')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: false });
-
-      if (documentsError) {
-        console.error('Error fetching documents:', documentsError);
-        toast.error("Error updating documents list");
-      } else {
-        setDocuments(userDocuments);
-      }
+      // Refresh documents list after successful upload
+      await fetchDocuments();
     } catch (error) {
       console.error('Upload error:', error);
       toast.error(error.message || "Failed to upload file");
     } finally {
       setIsUploading(false);
+      setSelectedFile(null);
+      // Clear the file input
+      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      if (fileInput) {
+        fileInput.value = '';
+      }
     }
   };
 
@@ -104,7 +130,8 @@ export const DocumentSection = () => {
 
       if (error) throw error;
 
-      setDocuments(documents.filter(doc => doc.id !== documentId));
+      // Refresh the documents list after deletion
+      await fetchDocuments();
       toast.success("Document deleted successfully");
     } catch (error) {
       console.error('Delete error:', error);
@@ -148,7 +175,7 @@ export const DocumentSection = () => {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="mt-6">
         <CardHeader>
           <CardTitle>Your Documents</CardTitle>
         </CardHeader>
@@ -163,23 +190,31 @@ export const DocumentSection = () => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {documents.map((doc) => (
-                  <TableRow key={doc.id}>
-                    <TableCell className="font-medium">{doc.name}</TableCell>
-                    <TableCell>
-                      {new Date(doc.created_at).toLocaleDateString()}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleDeleteDocument(doc.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                {documents.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center text-muted-foreground">
+                      No documents uploaded yet
                     </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  documents.map((doc) => (
+                    <TableRow key={doc.id}>
+                      <TableCell className="font-medium">{doc.name}</TableCell>
+                      <TableCell>
+                        {new Date(doc.created_at).toLocaleDateString()}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteDocument(doc.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>
