@@ -61,6 +61,7 @@ serve(async (req) => {
           const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true })
           extractedText = await extractTextFromPDF(pdfDoc)
         } else {
+          console.error('PDF processing error:', error)
           throw error
         }
       }
@@ -101,9 +102,28 @@ serve(async (req) => {
 })
 
 async function extractTextFromPDF(pdfDoc: PDFDocument): Promise<string> {
-  const pages = pdfDoc.getPages()
-  return pages.map(page => {
-    const text = page.doc.catalog.get(page.doc.context.obj(page.ref)).get('Contents')
-    return text ? text.toString() : ''
-  }).join('\n')
+  try {
+    const pages = pdfDoc.getPages()
+    const textContent: string[] = []
+    
+    for (const page of pages) {
+      try {
+        const content = page.doc.catalog.get(page.doc.context.obj(page.ref))
+        if (content) {
+          const text = content.get('Contents')
+          if (text) {
+            textContent.push(text.toString())
+          }
+        }
+      } catch (pageError) {
+        console.warn('Error extracting text from page:', pageError)
+        // Continue with next page even if this one fails
+      }
+    }
+    
+    return textContent.join('\n') || 'No text could be extracted from this PDF'
+  } catch (error) {
+    console.error('Error in extractTextFromPDF:', error)
+    return 'Error extracting text from PDF'
+  }
 }
