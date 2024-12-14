@@ -83,25 +83,42 @@ serve(async (req) => {
 
         console.log('Found user:', users);
 
+        // For subscription.deleted, we'll update the status to canceled
+        const status = event.type === 'customer.subscription.deleted' 
+          ? 'canceled' 
+          : subscription.status;
+
+        // Only proceed with active or canceled subscriptions
+        if (status === 'incomplete' || status === 'incomplete_expired') {
+          console.log(`Skipping ${status} subscription update`);
+          return new Response(JSON.stringify({ received: true }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 200,
+          });
+        }
+
         // Update subscriptions table
         const subscriptionData = {
           user_id: users.id,
           stripe_subscription_id: subscription.id,
           stripe_customer_id: subscription.customer,
-          status: subscription.status,
+          status: status,
           price_id: subscription.items.data[0].price.id,
           updated_at: new Date().toISOString()
         };
 
         console.log('Updating subscription with data:', subscriptionData);
 
-        const { error: subscriptionError } = await supabaseClient
+        // Try to update existing subscription first
+        const { error: updateError } = await supabaseClient
           .from('subscriptions')
-          .upsert(subscriptionData);
+          .upsert(subscriptionData, {
+            onConflict: 'user_id,stripe_subscription_id'
+          });
 
-        if (subscriptionError) {
-          console.error('Error updating subscription:', subscriptionError);
-          throw subscriptionError;
+        if (updateError) {
+          console.error('Error updating subscription:', updateError);
+          throw updateError;
         }
 
         console.log(`Subscription ${event.type} processed successfully for user ${users.id}`);
