@@ -23,8 +23,7 @@ const Index = () => {
         .from('subscriptions')
         .select('*')
         .eq('user_id', session.user.id)
-        .eq('status', 'active')
-        .single();
+        .eq('status', 'active');
 
       if (subscriptionError) {
         console.error('Error checking subscription:', subscriptionError);
@@ -32,7 +31,8 @@ const Index = () => {
         return;
       }
 
-      if (!subscriptionData) {
+      // If no subscription or empty array, redirect to register
+      if (!subscriptionData || subscriptionData.length === 0) {
         navigate("/register");
         toast.info("Please subscribe to continue");
       }

@@ -15,12 +15,12 @@ const Login = () => {
         .from('subscriptions')
         .select('*')
         .eq('user_id', session.user.id)
-        .eq('status', 'active')
-        .single();
+        .eq('status', 'active');
 
       if (subscriptionError) throw subscriptionError;
 
-      if (!subscriptionData) {
+      // Check if there are any active subscriptions
+      if (!subscriptionData || subscriptionData.length === 0) {
         // No active subscription found, redirect to registration which handles subscription creation
         navigate("/register");
         toast.info("Please subscribe to continue");
