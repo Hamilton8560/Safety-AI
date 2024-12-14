@@ -36,7 +36,6 @@ serve(async (req) => {
     let event;
 
     try {
-      // Use constructEventAsync instead of constructEvent
       event = await stripe.webhooks.constructEventAsync(
         body,
         signature,
@@ -89,6 +88,20 @@ serve(async (req) => {
 
       console.log('Found user:', users);
 
+      // Cancel any existing active subscriptions for this user
+      if (event.type === 'customer.subscription.created' && subscription.status === 'active') {
+        const { error: cancelError } = await supabaseClient
+          .from('subscriptions')
+          .update({ status: 'canceled' })
+          .eq('user_id', users.id)
+          .eq('status', 'active')
+          .neq('stripe_subscription_id', subscription.id);
+
+        if (cancelError) {
+          console.error('Error canceling existing subscriptions:', cancelError);
+        }
+      }
+
       // For subscription.deleted, we'll update the status to canceled
       const status = event.type === 'customer.subscription.deleted' 
         ? 'canceled' 
@@ -119,7 +132,7 @@ serve(async (req) => {
       const { error: updateError } = await supabaseClient
         .from('subscriptions')
         .upsert(subscriptionData, {
-          onConflict: 'user_id,stripe_subscription_id'
+          onConflict: 'stripe_subscription_id'
         });
 
       if (updateError) {

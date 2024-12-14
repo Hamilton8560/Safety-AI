@@ -16,6 +16,25 @@ const Registration = () => {
     try {
       setLoading(true);
       const session = await supabase.auth.getSession();
+      
+      // Check if user already has an active subscription
+      const { data: existingSubscription, error: subError } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('user_id', session.data.session?.user.id)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (subError) {
+        throw subError;
+      }
+
+      if (existingSubscription) {
+        toast.success('You already have an active subscription');
+        navigate('/dashboard');
+        return;
+      }
+
       const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('create-checkout', {
         headers: {
           Authorization: `Bearer ${session.data.session?.access_token}`,
@@ -24,11 +43,6 @@ const Registration = () => {
 
       if (checkoutError) {
         console.error('Checkout error:', checkoutError);
-        if (checkoutError.message.includes('already has an active subscription')) {
-          toast.success('You already have an active subscription');
-          navigate('/');
-          return;
-        }
         throw checkoutError;
       }
 
@@ -40,11 +54,6 @@ const Registration = () => {
       }
     } catch (error: any) {
       console.error('Error:', error);
-      if (error.message && error.message.includes('already has an active subscription')) {
-        toast.success('You already have an active subscription');
-        navigate('/');
-        return;
-      }
       toast.error(error.message || "Failed to process subscription");
     } finally {
       setLoading(false);
@@ -55,31 +64,30 @@ const Registration = () => {
     try {
       console.log('Checking subscription for session:', session.user.id);
       
-      // Query subscriptions table directly instead of using the function
-      const { data: subscriptions, error } = await supabase
+      const { data: subscription, error: subError } = await supabase
         .from('subscriptions')
         .select('*')
         .eq('user_id', session.user.id)
         .eq('status', 'active')
-        .maybeSingle(); // Use maybeSingle() to handle cases where no subscription exists
+        .maybeSingle();
 
-      if (error) {
-        console.error('Subscription check error:', error);
-        throw error;
+      if (subError) {
+        console.error('Subscription check error:', subError);
+        throw subError;
       }
 
-      console.log('Subscription check response:', subscriptions);
+      console.log('Subscription check response:', subscription);
 
-      if (!subscriptions) {
-        setShowSubscription(true);
-      } else {
+      if (subscription) {
         toast.success("Welcome back! Redirecting to dashboard...");
-        navigate("/");
+        navigate("/dashboard");
+      } else {
+        setShowSubscription(true);
       }
     } catch (error: any) {
       console.error('Error:', error);
       toast.error(error.message || "Failed to check subscription status");
-      setShowSubscription(true); // Show subscription page on error as fallback
+      setShowSubscription(true);
     }
   };
 
