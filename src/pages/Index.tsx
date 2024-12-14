@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Shield, CheckCircle, Lock, Users } from "lucide-react";
+import { Link } from "react-router-dom";
 
 const Index = () => {
   return (
@@ -16,8 +17,8 @@ const Index = () => {
               Streamline your compliance processes with AI-powered automation. Stay compliant, reduce risks, and focus on growing your business.
             </p>
             <div className="flex gap-4 justify-center">
-              <Button size="lg" className="text-lg">
-                Get Started
+              <Button size="lg" className="text-lg" asChild>
+                <Link to="/register">Get Started</Link>
               </Button>
               <Button size="lg" variant="outline" className="text-lg">
                 Learn More
@@ -67,8 +68,8 @@ const Index = () => {
           <p className="text-xl text-gray-600 mb-8">
             Join thousands of companies that trust our platform for their compliance needs.
           </p>
-          <Button size="lg" className="text-lg">
-            Start Free Trial
+          <Button size="lg" className="text-lg" asChild>
+            <Link to="/register">Start Free Trial</Link>
           </Button>
         </div>
       </section>
