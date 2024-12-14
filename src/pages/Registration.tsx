@@ -61,6 +61,7 @@ const Registration = () => {
       if (!data.subscribed) {
         setShowSubscription(true);
       } else {
+        toast.success("Welcome back! Redirecting to dashboard...");
         navigate("/");
       }
     } catch (error: any) {
