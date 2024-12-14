@@ -33,7 +33,6 @@ const Registration = () => {
       }
 
       if (checkoutData?.url) {
-        // Open in new tab instead of redirecting
         window.open(checkoutData.url, '_blank');
         toast.info("Checkout opened in a new tab. Please complete your subscription there.");
       } else {
@@ -53,9 +52,6 @@ const Registration = () => {
       
       const { data, error } = await supabase.functions.invoke('check-subscription', {
         body: { userId: session.user.id },
-        headers: {
-          Authorization: `Bearer ${session?.access_token}`,
-        },
       });
 
       console.log('Subscription check response:', data, error);

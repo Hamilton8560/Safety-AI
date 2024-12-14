@@ -13,10 +13,12 @@ serve(async (req) => {
   }
 
   try {
-    // Get auth header
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('No authorization header');
+    // Get the request body
+    const { userId } = await req.json();
+    console.log('Checking subscription for user:', userId);
+
+    if (!userId) {
+      throw new Error('No user ID provided');
     }
 
     // Initialize Supabase client
@@ -25,24 +27,19 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     );
 
-    // Get user from token
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
-    
-    if (userError || !user) {
-      throw new Error('Error getting user');
-    }
-
     // Check for active subscription
     const { data: subscriptions, error: subscriptionError } = await supabaseClient
       .from('subscriptions')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('status', 'active');
 
     if (subscriptionError) {
+      console.error('Subscription error:', subscriptionError);
       throw subscriptionError;
     }
+
+    console.log('Subscription check result:', subscriptions);
 
     return new Response(
       JSON.stringify({
