@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload, Trash2 } from "lucide-react";
+import { Upload, Trash2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,30 +26,48 @@ export const DocumentSection = () => {
   const [extractedText, setExtractedText] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   const fetchDocuments = async () => {
     try {
+      setIsLoading(true);
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         toast.error("Please login first");
         return;
       }
 
-      const { data: userDocuments, error: documentsError } = await supabase
+      // Fetch documents from the documents table
+      const { data: documentRecords, error: documentsError } = await supabase
         .from('documents')
         .select('*')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false });
 
       if (documentsError) {
-        console.error('Error fetching documents:', documentsError);
-        toast.error("Error loading documents");
-      } else {
-        setDocuments(userDocuments || []);
+        throw documentsError;
       }
+
+      // For each document, get the storage URL
+      const documentsWithUrls = await Promise.all(
+        (documentRecords || []).map(async (doc) => {
+          const { data: fileData } = await supabase.storage
+            .from('documents')
+            .createSignedUrl(doc.file_path, 3600); // 1 hour expiry
+
+          return {
+            ...doc,
+            downloadUrl: fileData?.signedUrl
+          };
+        })
+      );
+
+      setDocuments(documentsWithUrls);
     } catch (error) {
-      console.error('Error in fetchDocuments:', error);
+      console.error('Error fetching documents:', error);
       toast.error("Failed to load documents");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -82,38 +100,36 @@ export const DocumentSection = () => {
         return;
       }
 
-      // Create a new FormData instance
-      const formData = new FormData();
-      formData.append('file', selectedFile);
-      formData.append('userId', session.user.id);
+      // Upload to storage first
+      const fileExt = selectedFile.name.split('.').pop();
+      const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
+      const filePath = `${session.user.id}/${fileName}`;
 
-      const functionUrl = `${process.env.SUPABASE_URL}/functions/v1/process-document`;
-      const response = await fetch(functionUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.SUPABASE_ANON_KEY}`,
-        },
-        body: formData,
-      });
+      const { error: uploadError } = await supabase.storage
+        .from('documents')
+        .upload(filePath, selectedFile);
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to process document');
-      }
+      if (uploadError) throw uploadError;
 
-      const data = await response.json();
-      setExtractedText(data.extractedText || '');
+      // Create document record in the database
+      const { error: dbError } = await supabase
+        .from('documents')
+        .insert({
+          user_id: session.user.id,
+          name: selectedFile.name,
+          file_path: filePath
+        });
+
+      if (dbError) throw dbError;
+
       toast.success("File uploaded successfully");
-      
-      // Refresh documents list after successful upload
       await fetchDocuments();
     } catch (error) {
       console.error('Upload error:', error);
-      toast.error(error.message || "Failed to upload file");
+      toast.error("Failed to upload file");
     } finally {
       setIsUploading(false);
       setSelectedFile(null);
-      // Clear the file input
       const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
       if (fileInput) {
         fileInput.value = '';
@@ -121,21 +137,51 @@ export const DocumentSection = () => {
     }
   };
 
-  const handleDeleteDocument = async (documentId: string) => {
+  const handleDeleteDocument = async (document: Document) => {
     try {
-      const { error } = await supabase
+      // Delete from storage first
+      const { error: storageError } = await supabase.storage
+        .from('documents')
+        .remove([document.file_path]);
+
+      if (storageError) throw storageError;
+
+      // Then delete from database
+      const { error: dbError } = await supabase
         .from('documents')
         .delete()
-        .eq('id', documentId);
+        .eq('id', document.id);
 
-      if (error) throw error;
+      if (dbError) throw dbError;
 
-      // Refresh the documents list after deletion
       await fetchDocuments();
       toast.success("Document deleted successfully");
     } catch (error) {
       console.error('Delete error:', error);
       toast.error("Failed to delete document");
+    }
+  };
+
+  const handleDownload = async (document: Document) => {
+    try {
+      const { data, error } = await supabase.storage
+        .from('documents')
+        .download(document.file_path);
+
+      if (error) throw error;
+
+      // Create a download link
+      const url = URL.createObjectURL(data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = document.name;
+      document.body.appendChild(a);
+      a.click();
+      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Download error:', error);
+      toast.error("Failed to download file");
     }
   };
 
@@ -162,15 +208,6 @@ export const DocumentSection = () => {
                 {isUploading ? "Uploading..." : "Upload"}
               </Button>
             </div>
-            
-            {extractedText && (
-              <div className="mt-4">
-                <h3 className="text-lg font-semibold mb-2">Extracted Text:</h3>
-                <div className="bg-muted p-4 rounded-md whitespace-pre-wrap">
-                  {extractedText}
-                </div>
-              </div>
-            )}
           </div>
         </CardContent>
       </Card>
@@ -186,11 +223,17 @@ export const DocumentSection = () => {
                 <TableRow>
                   <TableHead>Name</TableHead>
                   <TableHead>Upload Date</TableHead>
-                  <TableHead className="w-[100px]">Actions</TableHead>
+                  <TableHead className="w-[150px]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {documents.length === 0 ? (
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center text-muted-foreground">
+                      Loading documents...
+                    </TableCell>
+                  </TableRow>
+                ) : documents.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={3} className="text-center text-muted-foreground">
                       No documents uploaded yet
@@ -204,13 +247,24 @@ export const DocumentSection = () => {
                         {new Date(doc.created_at).toLocaleDateString()}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDeleteDocument(doc.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDownload(doc)}
+                            title="Download"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeleteDocument(doc)}
+                            title="Delete"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))
