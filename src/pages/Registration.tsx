@@ -33,7 +33,9 @@ const Registration = () => {
       }
 
       if (checkoutData?.url) {
-        window.location.href = checkoutData.url;
+        // Open in new tab instead of redirecting
+        window.open(checkoutData.url, '_blank');
+        toast.info("Checkout opened in a new tab. Please complete your subscription there.");
       } else {
         throw new Error('No checkout URL received');
       }
