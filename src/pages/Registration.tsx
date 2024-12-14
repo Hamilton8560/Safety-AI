@@ -2,12 +2,48 @@ import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 
 const Registration = () => {
   const navigate = useNavigate();
+  const [showSubscription, setShowSubscription] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubscribe = async () => {
+    try {
+      setLoading(true);
+      const session = await supabase.auth.getSession();
+      const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('create-checkout', {
+        headers: {
+          Authorization: `Bearer ${session.data.session?.access_token}`,
+        },
+      });
+
+      if (checkoutError) {
+        console.error('Checkout error:', checkoutError);
+        if (checkoutError.message.includes('already has an active subscription')) {
+          toast.success('You already have an active subscription');
+          navigate('/');
+          return;
+        }
+        throw checkoutError;
+      }
+
+      if (checkoutData?.url) {
+        window.location.href = checkoutData.url;
+      } else {
+        throw new Error('No checkout URL received');
+      }
+    } catch (error: any) {
+      console.error('Error:', error);
+      toast.error(error.message || "Failed to process subscription");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const checkSubscription = async (session: any) => {
     try {
@@ -25,41 +61,13 @@ const Registration = () => {
       if (error) throw error;
 
       if (!data.subscribed) {
-        console.log('No subscription found, creating checkout');
-        const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('create-checkout', {
-          headers: {
-            Authorization: `Bearer ${session?.access_token}`,
-          },
-        });
-
-        if (checkoutError) {
-          console.error('Checkout error:', checkoutError);
-          if (checkoutError.message.includes('already has an active subscription')) {
-            toast.success('You already have an active subscription');
-            navigate('/');
-            return;
-          }
-          throw checkoutError;
-        }
-
-        if (checkoutData?.url) {
-          // Create a form and submit it to handle the redirect properly
-          const form = document.createElement('form');
-          form.method = 'GET';
-          form.action = checkoutData.url;
-          form.target = '_top'; // This ensures it opens in the top-level window
-          document.body.appendChild(form);
-          form.submit();
-          document.body.removeChild(form);
-        } else {
-          throw new Error('No checkout URL received');
-        }
+        setShowSubscription(true);
       } else {
         navigate("/");
       }
     } catch (error: any) {
       console.error('Error:', error);
-      toast.error(error.message || "Failed to process subscription");
+      toast.error(error.message || "Failed to check subscription status");
     }
   };
 
@@ -74,6 +82,47 @@ const Registration = () => {
       subscription.unsubscribe();
     };
   }, [navigate]);
+
+  if (showSubscription) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-blue-50 to-white p-4">
+        <Card className="w-full max-w-lg">
+          <CardHeader className="text-center">
+            <CardTitle className="text-3xl">Subscribe to Continue</CardTitle>
+            <CardDescription className="mt-2">
+              Get access to all features with our premium subscription
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-blue-50 p-4 rounded-lg">
+              <h3 className="font-semibold text-lg mb-2">Premium Plan</h3>
+              <ul className="space-y-2">
+                <li className="flex items-center">
+                  <span className="mr-2">✓</span> Full access to all features
+                </li>
+                <li className="flex items-center">
+                  <span className="mr-2">✓</span> Priority support
+                </li>
+                <li className="flex items-center">
+                  <span className="mr-2">✓</span> Regular updates
+                </li>
+              </ul>
+              <p className="mt-4 font-semibold">$9.99/month</p>
+            </div>
+          </CardContent>
+          <CardFooter className="flex justify-center">
+            <Button 
+              onClick={handleSubscribe}
+              disabled={loading}
+              className="w-full"
+            >
+              {loading ? "Processing..." : "Subscribe Now"}
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-blue-50 to-white p-4">
