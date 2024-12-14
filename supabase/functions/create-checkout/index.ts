@@ -8,6 +8,7 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
+  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
   }
@@ -20,8 +21,7 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get('Authorization')!
     const token = authHeader.replace('Bearer ', '')
-    const { data } = await supabaseClient.auth.getUser(token)
-    const user = data.user
+    const { data: { user } } = await supabaseClient.auth.getUser(token)
     const email = user?.email
 
     if (!email) {
@@ -32,6 +32,7 @@ serve(async (req) => {
       apiVersion: '2023-10-16',
     })
 
+    // First check if customer exists
     const customers = await stripe.customers.list({
       email: email,
       limit: 1
@@ -40,15 +41,25 @@ serve(async (req) => {
     let customer_id = undefined
     if (customers.data.length > 0) {
       customer_id = customers.data[0].id
+      
+      // Check for active subscriptions
       const subscriptions = await stripe.subscriptions.list({
-        customer: customers.data[0].id,
+        customer: customer_id,
         status: 'active',
-        price: 'price_1QTS3ZDHXhU2ILUNzNmZ3MUC',
         limit: 1
       })
 
+      // If customer has active subscription, redirect to success URL
       if (subscriptions.data.length > 0) {
-        throw new Error("Customer already has an active subscription")
+        return new Response(
+          JSON.stringify({ 
+            url: `${req.headers.get('origin')}/`
+          }),
+          { 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 200 
+          }
+        )
       }
     }
 
@@ -81,7 +92,7 @@ serve(async (req) => {
       JSON.stringify({ error: error.message }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 500,
+        status: 400,
       }
     )
   }

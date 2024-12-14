@@ -32,7 +32,15 @@ const Registration = () => {
           },
         });
 
-        if (checkoutError) throw checkoutError;
+        if (checkoutError) {
+          console.error('Checkout error:', checkoutError);
+          if (checkoutError.message.includes('already has an active subscription')) {
+            toast.success('You already have an active subscription');
+            navigate('/');
+            return;
+          }
+          throw checkoutError;
+        }
 
         if (checkoutData?.url) {
           window.location.href = checkoutData.url;
