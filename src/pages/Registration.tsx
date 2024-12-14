@@ -43,7 +43,8 @@ const Registration = () => {
         }
 
         if (checkoutData?.url) {
-          window.location.href = checkoutData.url;
+          // Use window.top to ensure the redirect happens at the top level
+          window.top.location.href = checkoutData.url;
         } else {
           throw new Error('No checkout URL received');
         }
