@@ -21,16 +21,23 @@ const Dashboard = () => {
         return;
       }
 
-      const { data: subscriptionData, error: subscriptionError } = await supabase
+      const { data: subscription, error: subscriptionError } = await supabase
         .from('subscriptions')
         .select('*')
         .eq('user_id', session.user.id)
         .eq('status', 'active')
-        .single();
+        .maybeSingle();
 
-      if (subscriptionError || !subscriptionData) {
+      if (subscriptionError) {
+        console.error('Error checking subscription:', subscriptionError);
+        toast.error("Error checking subscription status");
         navigate("/register");
+        return;
+      }
+
+      if (!subscription) {
         toast.error("Please subscribe to access the dashboard");
+        navigate("/register");
         return;
       }
     };
