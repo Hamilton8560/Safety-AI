@@ -54,9 +54,12 @@ const Registration = () => {
         body: { userId: session.user.id },
       });
 
-      console.log('Subscription check response:', data, error);
+      if (error) {
+        console.error('Subscription check error:', error);
+        throw error;
+      }
 
-      if (error) throw error;
+      console.log('Subscription check response:', data, error);
 
       if (!data.subscribed) {
         setShowSubscription(true);
@@ -67,6 +70,7 @@ const Registration = () => {
     } catch (error: any) {
       console.error('Error:', error);
       toast.error(error.message || "Failed to check subscription status");
+      setShowSubscription(true); // Show subscription page on error as fallback
     }
   };
 
