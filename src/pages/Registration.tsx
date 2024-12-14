@@ -4,15 +4,47 @@ import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { toast } from "sonner";
 
 const Registration = () => {
   const navigate = useNavigate();
 
+  const checkSubscription = async (session: any) => {
+    try {
+      const { data, error } = await supabase.functions.invoke('check-subscription', {
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+      });
+
+      if (error) throw error;
+
+      if (!data.subscribed) {
+        const { data: checkoutData, error: checkoutError } = await supabase.functions.invoke('create-checkout', {
+          headers: {
+            Authorization: `Bearer ${session?.access_token}`,
+          },
+        });
+
+        if (checkoutError) throw checkoutError;
+
+        if (checkoutData.url) {
+          window.location.href = checkoutData.url;
+        }
+      } else {
+        navigate("/");
+      }
+    } catch (error) {
+      console.error('Error:', error);
+      toast.error("Failed to process subscription");
+      navigate("/");
+    }
+  };
+
   useEffect(() => {
-    // Check if user is already logged in
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session) {
-        navigate("/");
+        checkSubscription(session);
       }
     });
 
