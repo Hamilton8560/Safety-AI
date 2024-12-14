@@ -24,7 +24,6 @@ const Registration = () => {
 
       if (checkoutError) {
         console.error('Checkout error:', checkoutError);
-        // If the error message indicates an active subscription, redirect to dashboard
         if (checkoutError.message.includes('already has an active subscription')) {
           toast.success('You already have an active subscription');
           navigate('/');
@@ -41,7 +40,6 @@ const Registration = () => {
       }
     } catch (error: any) {
       console.error('Error:', error);
-      // If the error response contains a URL (meaning user has active subscription)
       if (error.message && error.message.includes('already has an active subscription')) {
         toast.success('You already have an active subscription');
         navigate('/');
@@ -57,18 +55,22 @@ const Registration = () => {
     try {
       console.log('Checking subscription for session:', session.user.id);
       
-      const { data, error } = await supabase.functions.invoke('check-subscription', {
-        body: { userId: session.user.id },
-      });
+      // Query subscriptions table directly instead of using the function
+      const { data: subscriptions, error } = await supabase
+        .from('subscriptions')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .eq('status', 'active')
+        .maybeSingle(); // Use maybeSingle() to handle cases where no subscription exists
 
       if (error) {
         console.error('Subscription check error:', error);
         throw error;
       }
 
-      console.log('Subscription check response:', data, error);
+      console.log('Subscription check response:', subscriptions);
 
-      if (!data.subscribed) {
+      if (!subscriptions) {
         setShowSubscription(true);
       } else {
         toast.success("Welcome back! Redirecting to dashboard...");
