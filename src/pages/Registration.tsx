@@ -43,8 +43,14 @@ const Registration = () => {
         }
 
         if (checkoutData?.url) {
-          // Use window.top to ensure the redirect happens at the top level
-          window.top.location.href = checkoutData.url;
+          // Create a form and submit it to handle the redirect properly
+          const form = document.createElement('form');
+          form.method = 'GET';
+          form.action = checkoutData.url;
+          form.target = '_top'; // This ensures it opens in the top-level window
+          document.body.appendChild(form);
+          form.submit();
+          document.body.removeChild(form);
         } else {
           throw new Error('No checkout URL received');
         }
@@ -54,7 +60,6 @@ const Registration = () => {
     } catch (error: any) {
       console.error('Error:', error);
       toast.error(error.message || "Failed to process subscription");
-      // Don't navigate away on error, let user try again
     }
   };
 
