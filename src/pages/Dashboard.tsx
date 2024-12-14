@@ -67,24 +67,15 @@ const Dashboard = () => {
       formData.append('file', selectedFile);
       formData.append('userId', session.user.id);
 
-      const response = await fetch(
-        'https://hmcaajyrprstvhunbagl.supabase.co/functions/v1/process-document',
-        {
-          method: 'POST',
-          body: formData,
-          headers: {
-            'Authorization': `Bearer ${process.env.SUPABASE_ANON_KEY}`,
-          },
-        }
-      );
+      const { data, error } = await supabase.functions.invoke('process-document', {
+        body: formData,
+      });
 
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Upload failed');
+      if (error) {
+        throw error;
       }
 
-      setExtractedText(data.extractedText);
+      setExtractedText(data.extractedText || '');
       toast.success("File uploaded successfully");
     } catch (error) {
       console.error('Upload error:', error);
