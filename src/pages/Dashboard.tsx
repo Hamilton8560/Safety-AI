@@ -70,18 +70,26 @@ const Dashboard = () => {
         return;
       }
 
+      // Create a new FormData instance
       const formData = new FormData();
       formData.append('file', selectedFile);
       formData.append('userId', session.user.id);
 
-      const { data, error } = await supabase.functions.invoke('process-document', {
+      // Call the Edge Function using fetch directly for better control
+      const response = await fetch(`${supabase.supabaseUrl}/functions/v1/process-document`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${supabase.supabaseKey}`,
+        },
         body: formData,
       });
 
-      if (error) {
-        throw error;
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to process document');
       }
 
+      const data = await response.json();
       setExtractedText(data.extractedText || '');
       toast.success("File uploaded successfully");
     } catch (error) {
