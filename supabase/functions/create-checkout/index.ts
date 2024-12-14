@@ -8,14 +8,13 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
   }
 
   const supabaseClient = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
   )
 
   try {
@@ -28,11 +27,36 @@ serve(async (req) => {
       throw new Error('No email found')
     }
 
+    // First check if user already has an active subscription
+    const { data: subscriptions, error: subError } = await supabaseClient
+      .from('subscriptions')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .single();
+
+    if (subError && subError.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+      throw subError;
+    }
+
+    if (subscriptions) {
+      return new Response(
+        JSON.stringify({ 
+          message: 'User already has an active subscription',
+          url: `${req.headers.get('origin')}/`
+        }),
+        { 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 400
+        }
+      )
+    }
+
     const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
       apiVersion: '2023-10-16',
     })
 
-    // First check if customer exists
+    // Check if customer exists
     const customers = await stripe.customers.list({
       email: email,
       limit: 1
@@ -41,26 +65,6 @@ serve(async (req) => {
     let customer_id = undefined
     if (customers.data.length > 0) {
       customer_id = customers.data[0].id
-      
-      // Check for active subscriptions
-      const subscriptions = await stripe.subscriptions.list({
-        customer: customer_id,
-        status: 'active',
-        limit: 1
-      })
-
-      // If customer has active subscription, redirect to success URL
-      if (subscriptions.data.length > 0) {
-        return new Response(
-          JSON.stringify({ 
-            url: `${req.headers.get('origin')}/`
-          }),
-          { 
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            status: 200 
-          }
-        )
-      }
     }
 
     console.log('Creating payment session...')
@@ -83,7 +87,7 @@ serve(async (req) => {
       JSON.stringify({ url: session.url }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
+        status: 200
       }
     )
   } catch (error) {
@@ -92,7 +96,7 @@ serve(async (req) => {
       JSON.stringify({ error: error.message }),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400,
+        status: 400
       }
     )
   }

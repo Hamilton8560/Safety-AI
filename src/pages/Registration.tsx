@@ -24,6 +24,7 @@ const Registration = () => {
 
       if (checkoutError) {
         console.error('Checkout error:', checkoutError);
+        // If the error message indicates an active subscription, redirect to dashboard
         if (checkoutError.message.includes('already has an active subscription')) {
           toast.success('You already have an active subscription');
           navigate('/');
@@ -40,6 +41,12 @@ const Registration = () => {
       }
     } catch (error: any) {
       console.error('Error:', error);
+      // If the error response contains a URL (meaning user has active subscription)
+      if (error.message && error.message.includes('already has an active subscription')) {
+        toast.success('You already have an active subscription');
+        navigate('/');
+        return;
+      }
       toast.error(error.message || "Failed to process subscription");
     } finally {
       setLoading(false);
