@@ -42,6 +42,7 @@ serve(async (req) => {
       })
 
     if (uploadError) {
+      console.error('Upload error:', uploadError)
       throw new Error(`Upload failed: ${uploadError.message}`)
     }
 
@@ -58,46 +59,71 @@ serve(async (req) => {
         const arrayBuffer = await file.arrayBuffer()
         const base64String = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
 
-        // Call OpenAI API
-        const response = await fetch('https://api.openai.com/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'gpt-4o-mini',  // Changed from gpt-4o to gpt-4o-mini for better reliability
-            messages: [
-              {
-                role: 'system',
-                content: 'You are a helpful assistant that extracts and processes text from documents.'
-              },
-              {
-                role: 'user',
-                content: [
-                  {
-                    type: 'text',
-                    text: 'Please extract and summarize the text content from this PDF document. Maintain the structure and formatting where possible.'
-                  },
-                  {
-                    type: 'image_url',
-                    image_url: {
-                      url: `data:application/pdf;base64,${base64String}`
+        // Split large documents into chunks
+        const maxChunkSize = 500000 // 500KB chunks
+        const totalSize = base64String.length
+        const chunks = Math.ceil(totalSize / maxChunkSize)
+        
+        console.log(`Processing PDF in ${chunks} chunks`)
+        
+        let allText = ''
+        
+        // Process document in chunks
+        for (let i = 0; i < chunks; i++) {
+          const start = i * maxChunkSize
+          const end = Math.min((i + 1) * maxChunkSize, totalSize)
+          const chunk = base64String.slice(start, end)
+          
+          console.log(`Processing chunk ${i + 1} of ${chunks}`)
+          
+          const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'gpt-4o-mini',
+              messages: [
+                {
+                  role: 'system',
+                  content: 'You are a helpful assistant that extracts and processes text from documents.'
+                },
+                {
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'text',
+                      text: `Please extract and summarize the text content from this portion (${i + 1}/${chunks}) of the PDF document. Maintain the structure and formatting where possible.`
+                    },
+                    {
+                      type: 'image_url',
+                      image_url: {
+                        url: `data:application/pdf;base64,${chunk}`
+                      }
                     }
-                  }
-                ]
-              }
-            ],
-            max_tokens: 4096
+                  ]
+                }
+              ],
+              max_tokens: 4096
+            })
           })
-        })
 
-        if (!response.ok) {
-          throw new Error(`OpenAI API error: ${response.statusText}`)
+          if (!response.ok) {
+            console.error(`OpenAI API error for chunk ${i + 1}:`, await response.text())
+            throw new Error(`OpenAI API error: ${response.statusText}`)
+          }
+
+          const data = await response.json()
+          allText += data.choices[0].message.content + '\n'
+          
+          // Add a small delay between chunks to avoid rate limiting
+          if (i < chunks - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000))
+          }
         }
-
-        const data = await response.json()
-        extractedText = data.choices[0].message.content
+        
+        extractedText = allText.trim()
         console.log('Successfully extracted text using OpenAI')
       } catch (error) {
         console.error('OpenAI processing error:', error)
