@@ -270,7 +270,7 @@ export const DocumentSection = () => {
             <div className="flex items-center gap-4">
               <Input
                 type="file"
-                accept=".pdf,.docx"
+                accept=".docx"
                 onChange={handleFileChange}
                 className="flex-1"
               />
