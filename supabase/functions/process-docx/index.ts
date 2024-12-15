@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { readDocx } from "https://esm.sh/mammoth@1.7.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,32 +8,41 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-function cleanText(text: string): string {
-  return text
-    .replace(/[\x00-\x09\x0B-\x0C\x0E-\x1F\x7F-\x9F]/g, "") // Remove control chars
-    .replace(/\s+/g, " ") // Normalize whitespace
-    .trim();
+async function extractText(fileData: Blob, fileExt: string): Promise<string> {
+  try {
+    if (fileExt === "docx") {
+      const arrayBuffer = await fileData.arrayBuffer();
+      const result = await readDocx({ arrayBuffer });
+      return result.value;
+    } else {
+      return await fileData.text();
+    }
+  } catch (error) {
+    console.error("Text extraction error:", error);
+    throw error;
+  }
 }
 
 function createChunks(text: string, maxChunkLength: number = 1000): string[] {
-  // First split into paragraphs
   const paragraphs = text.split(/\n\s*\n/);
   const chunks: string[] = [];
   let currentChunk: string[] = [];
   let currentLength = 0;
 
   for (const paragraph of paragraphs) {
-    const cleanParagraph = cleanText(paragraph);
-    const paragraphLength = cleanParagraph.length;
+    // Clean the paragraph
+    const cleanParagraph = paragraph.replace(/\s+/g, " ").trim();
 
-    if (paragraphLength > maxChunkLength) {
-      // If a single paragraph is too long, split into sentences
+    if (!cleanParagraph) continue;
+
+    if (cleanParagraph.length > maxChunkLength) {
+      // If paragraph is too long, split into sentences
       const sentences = cleanParagraph.match(/[^.!?]+[.!?]+/g) || [
         cleanParagraph,
       ];
 
       for (const sentence of sentences) {
-        const cleanSentence = cleanText(sentence);
+        const cleanSentence = sentence.trim();
 
         if (
           currentLength + cleanSentence.length > maxChunkLength &&
@@ -44,11 +54,11 @@ function createChunks(text: string, maxChunkLength: number = 1000): string[] {
         }
 
         currentChunk.push(cleanSentence);
-        currentLength += cleanSentence.length;
+        currentLength += cleanSentence.length + 1;
       }
     } else {
       if (
-        currentLength + paragraphLength > maxChunkLength &&
+        currentLength + cleanParagraph.length > maxChunkLength &&
         currentChunk.length > 0
       ) {
         chunks.push(currentChunk.join(" "));
@@ -56,7 +66,7 @@ function createChunks(text: string, maxChunkLength: number = 1000): string[] {
         currentLength = 0;
       }
       currentChunk.push(cleanParagraph);
-      currentLength += paragraphLength;
+      currentLength += cleanParagraph.length + 1;
     }
   }
 
@@ -65,8 +75,8 @@ function createChunks(text: string, maxChunkLength: number = 1000): string[] {
   }
 
   return chunks
-    .map((chunk) => cleanText(chunk))
-    .filter((chunk) => chunk.length > 0);
+    .filter((chunk) => chunk.length > 0)
+    .map((chunk) => chunk.trim());
 }
 
 async function createEmbedding(text: string) {
@@ -94,35 +104,36 @@ async function createEmbedding(text: string) {
 }
 
 serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   try {
-    if (req.method === "OPTIONS") {
-      return new Response("ok", { headers: corsHeaders });
+    const body = await req.json();
+    console.log("Received request body:", body); // Debug log
+
+    const { documentId, text } = body;
+
+    if (!documentId) {
+      throw new Error("documentId is required");
     }
 
-    const { documentId, filePath } = await req.json();
-    console.log("Processing document:", documentId, filePath);
+    if (!text) {
+      throw new Error("text is required");
+    }
+
+    console.log("Processing document:", documentId);
+    console.log("Text length:", text.length);
+    console.log("Sample text:", text.substring(0, 100));
+
+    // Create chunks directly from the provided text
+    const chunks = createChunks(text);
+    console.log(`Created ${chunks.length} chunks`);
 
     const supabaseClient = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
     );
-
-    // Download the file
-    const { data: fileData, error: downloadError } =
-      await supabaseClient.storage.from("documents").download(filePath);
-
-    if (downloadError) {
-      throw new Error(`Error downloading file: ${downloadError.message}`);
-    }
-
-    // Convert file to text
-    const text = await fileData.text();
-    console.log("Converting to text");
-
-    // Create chunks
-    console.log("Creating chunks");
-    const chunks = createChunks(text);
-    console.log(`Created ${chunks.length} chunks`);
 
     // Delete existing embeddings
     const { error: deleteError } = await supabaseClient
@@ -134,12 +145,8 @@ serve(async (req) => {
       throw deleteError;
     }
 
-    // Process each chunk
-    console.log("Processing chunks");
+    // Process chunks
     for (const [index, chunk] of chunks.entries()) {
-      console.log(`Processing chunk ${index + 1}/${chunks.length}`);
-      console.log("Chunk length:", chunk.length);
-
       try {
         const embedding = await createEmbedding(chunk);
 
@@ -155,6 +162,8 @@ serve(async (req) => {
         if (insertError) {
           throw insertError;
         }
+
+        console.log(`Processed chunk ${index + 1}/${chunks.length}`);
       } catch (error) {
         console.error(`Error processing chunk ${index + 1}:`, error);
         throw error;

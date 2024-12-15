@@ -13,58 +13,44 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
+import { PDFDocument } from "pdf-lib";
+import DocxConverter from "../DocxConverter";
 interface Document {
   id: string;
   name: string;
   created_at: string;
   file_path: string;
+  is_processed?: boolean;
 }
 
 export const DocumentSection = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [extractedText, setExtractedText] = useState<string>("");
   const [isUploading, setIsUploading] = useState(false);
-  const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [documents, setDocuments] = useState<Document[]>([]);
 
   const fetchDocuments = async () => {
     try {
       setIsLoading(true);
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session) {
         toast.error("Please login first");
         return;
       }
 
-      // Fetch documents from the documents table
       const { data: documentRecords, error: documentsError } = await supabase
-        .from('documents')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: false });
+        .from("documents")
+        .select("*")
+        .eq("user_id", session.user.id)
+        .order("created_at", { ascending: false });
 
-      if (documentsError) {
-        throw documentsError;
-      }
+      if (documentsError) throw documentsError;
 
-      // For each document, get the storage URL
-      const documentsWithUrls = await Promise.all(
-        (documentRecords || []).map(async (doc) => {
-          const { data: fileData } = await supabase.storage
-            .from('documents')
-            .createSignedUrl(doc.file_path, 3600); // 1 hour expiry
-
-          return {
-            ...doc,
-            downloadUrl: fileData?.signedUrl
-          };
-        })
-      );
-
-      setDocuments(documentsWithUrls);
+      setDocuments(documentRecords || []);
     } catch (error) {
-      console.error('Error fetching documents:', error);
+      console.error("Error fetching documents:", error);
       toast.error("Failed to load documents");
     } finally {
       setIsLoading(false);
@@ -78,11 +64,55 @@ export const DocumentSection = () => {
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      if (file.type !== 'application/pdf') {
-        toast.error("Please select a PDF file");
+      const validTypes = [
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ];
+      if (!validTypes.includes(file.type)) {
+        toast.error("Please select a PDF or DOCX file");
         return;
       }
       setSelectedFile(file);
+    }
+  };
+
+  const processDocument = async (documentId: string, filePath: string) => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) throw new Error("No session");
+
+      const functionUrl = `${
+        import.meta.env.VITE_SUPABASE_URL
+      }/functions/v1/process-document`;
+      const response = await fetch(functionUrl, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          documentId,
+          filePath,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to process document");
+      }
+
+      setDocuments((docs) =>
+        docs.map((doc) =>
+          doc.id === documentId ? { ...doc, is_processed: true } : doc
+        )
+      );
+
+      toast.success("Document processed successfully");
+    } catch (error) {
+      console.error("Processing error:", error);
+      toast.error("Failed to process document");
     }
   };
 
@@ -94,94 +124,108 @@ export const DocumentSection = () => {
 
     setIsUploading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session) {
         toast.error("Please login first");
         return;
       }
 
       // Upload to storage first
-      const fileExt = selectedFile.name.split('.').pop();
+      const fileExt = selectedFile.name.split(".").pop();
       const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
       const filePath = `${session.user.id}/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
-        .from('documents')
+        .from("documents")
         .upload(filePath, selectedFile);
 
       if (uploadError) throw uploadError;
 
       // Create document record in the database
-      const { error: dbError } = await supabase
-        .from('documents')
+      const { data: documentRecord, error: dbError } = await supabase
+        .from("documents")
         .insert({
           user_id: session.user.id,
           name: selectedFile.name,
-          file_path: filePath
-        });
+          file_path: filePath,
+        })
+        .select()
+        .single();
 
       if (dbError) throw dbError;
 
       toast.success("File uploaded successfully");
+
+      // Process the document for embeddings
+      await processDocument(
+        documentRecord.id,
+        filePath,
+        selectedFile.name.split(".").pop()?.toLowerCase()
+      );
+
       await fetchDocuments();
     } catch (error) {
-      console.error('Upload error:', error);
+      console.error("Upload error:", error);
       toast.error("Failed to upload file");
     } finally {
       setIsUploading(false);
       setSelectedFile(null);
-      const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+      const fileInput = document.querySelector(
+        'input[type="file"]'
+      ) as HTMLInputElement;
       if (fileInput) {
-        fileInput.value = '';
+        fileInput.value = "";
       }
     }
   };
 
-  const handleDeleteDocument = async (document: Document) => {
+  const handleDownload = async (doc: Document) => {
+    try {
+      const { data, error } = await supabase.storage
+        .from("documents")
+        .download(doc.file_path);
+
+      if (error) throw error;
+
+      // Create a download link
+      const url = URL.createObjectURL(data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.name;
+      document.body.appendChild(a);
+      a.click();
+      URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error("Download error:", error);
+      toast.error("Failed to download file");
+    }
+  };
+
+  const handleDeleteDocument = async (doc: Document) => {
     try {
       // Delete from storage first
       const { error: storageError } = await supabase.storage
-        .from('documents')
-        .remove([document.file_path]);
+        .from("documents")
+        .remove([doc.file_path]);
 
       if (storageError) throw storageError;
 
       // Then delete from database
       const { error: dbError } = await supabase
-        .from('documents')
+        .from("documents")
         .delete()
-        .eq('id', document.id);
+        .eq("id", doc.id);
 
       if (dbError) throw dbError;
 
       await fetchDocuments();
       toast.success("Document deleted successfully");
     } catch (error) {
-      console.error('Delete error:', error);
+      console.error("Delete error:", error);
       toast.error("Failed to delete document");
-    }
-  };
-
-  const handleDownload = async (document: Document) => {
-    try {
-      const { data, error } = await supabase.storage
-        .from('documents')
-        .download(document.file_path);
-
-      if (error) throw error;
-
-      // Create a download link
-      const url = URL.createObjectURL(data);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = document.name;
-      document.body.appendChild(a);
-      a.click();
-      URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      console.error('Download error:', error);
-      toast.error("Failed to download file");
     }
   };
 
@@ -191,16 +235,17 @@ export const DocumentSection = () => {
         <CardHeader>
           <CardTitle>Upload Document</CardTitle>
         </CardHeader>
+        <DocxConverter />
         <CardContent>
           <div className="space-y-4">
             <div className="flex items-center gap-4">
               <Input
                 type="file"
-                accept=".pdf"
+                accept=".pdf,.docx"
                 onChange={handleFileChange}
                 className="flex-1"
               />
-              <Button 
+              <Button
                 onClick={handleUpload}
                 disabled={!selectedFile || isUploading}
               >
@@ -229,13 +274,19 @@ export const DocumentSection = () => {
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={3} className="text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={3}
+                      className="text-center text-muted-foreground"
+                    >
                       Loading documents...
                     </TableCell>
                   </TableRow>
                 ) : documents.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={3} className="text-center text-muted-foreground">
+                    <TableCell
+                      colSpan={3}
+                      className="text-center text-muted-foreground"
+                    >
                       No documents uploaded yet
                     </TableCell>
                   </TableRow>
