@@ -13,10 +13,7 @@ const Index = () => {
     const checkAuth = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       
-      if (!session) {
-        navigate("/login");
-        return;
-      }
+     
 
       // Check if user has an active subscription
       const { data: subscriptionData, error: subscriptionError } = await supabase

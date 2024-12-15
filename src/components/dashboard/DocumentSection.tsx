@@ -14,7 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { PDFDocument } from "pdf-lib";
-import DocxConverter from "../DocxConverter";
+
 interface Document {
   id: string;
   name: string;
@@ -82,46 +82,79 @@ export const DocumentSection = () => {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session) throw new Error("No session");
-
+  
+      // First, download the file from storage
+      const { data: fileData, error: downloadError } = await supabase.storage
+        .from("documents")
+        .download(filePath);
+  
+      if (downloadError) {
+        throw new Error(`Error downloading file: ${downloadError.message}`);
+      }
+  
+      // Extract text based on file type
+      let text = '';
+      const fileExt = filePath.split('.').pop()?.toLowerCase();
+  
+      if (fileExt === 'docx') {
+        const arrayBuffer = await fileData.arrayBuffer();
+        const mammoth = await import("mammoth");
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        text = result.value;
+      } else if (fileExt === 'pdf') {
+        // For PDFs, you'll need to implement PDF text extraction
+        throw new Error("PDF processing not yet implemented");
+      } else {
+        throw new Error("Unsupported file type");
+      }
+  
+      if (!text) {
+        throw new Error("No text could be extracted from the document");
+      }
+  
       const functionUrl = `${
         import.meta.env.VITE_SUPABASE_URL
-      }/functions/v1/process-document`;
+      }/functions/v1/process-docx`;
+  
       const response = await fetch(functionUrl, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
           "Content-Type": "application/json",
+          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
         body: JSON.stringify({
           documentId,
-          filePath,
+          text,
         }),
       });
-
+  
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || "Failed to process document");
       }
-
+  
       setDocuments((docs) =>
         docs.map((doc) =>
           doc.id === documentId ? { ...doc, is_processed: true } : doc
         )
       );
-
+  
       toast.success("Document processed successfully");
     } catch (error) {
       console.error("Processing error:", error);
-      toast.error("Failed to process document");
+      toast.error(error.message || "Failed to process document");
+      throw error;
     }
   };
+  
 
   const handleUpload = async () => {
     if (!selectedFile) {
       toast.error("Please select a file first");
       return;
     }
-
+  
     setIsUploading(true);
     try {
       const {
@@ -131,18 +164,18 @@ export const DocumentSection = () => {
         toast.error("Please login first");
         return;
       }
-
+  
       // Upload to storage first
       const fileExt = selectedFile.name.split(".").pop();
       const fileName = `${Math.random().toString(36).substring(2)}.${fileExt}`;
       const filePath = `${session.user.id}/${fileName}`;
-
+  
       const { error: uploadError } = await supabase.storage
         .from("documents")
         .upload(filePath, selectedFile);
-
+  
       if (uploadError) throw uploadError;
-
+  
       // Create document record in the database
       const { data: documentRecord, error: dbError } = await supabase
         .from("documents")
@@ -153,18 +186,14 @@ export const DocumentSection = () => {
         })
         .select()
         .single();
-
+  
       if (dbError) throw dbError;
-
+  
       toast.success("File uploaded successfully");
-
+  
       // Process the document for embeddings
-      await processDocument(
-        documentRecord.id,
-        filePath,
-        selectedFile.name.split(".").pop()?.toLowerCase()
-      );
-
+      await processDocument(documentRecord.id, filePath);
+  
       await fetchDocuments();
     } catch (error) {
       console.error("Upload error:", error);
@@ -235,7 +264,7 @@ export const DocumentSection = () => {
         <CardHeader>
           <CardTitle>Upload Document</CardTitle>
         </CardHeader>
-        <DocxConverter />
+     
         <CardContent>
           <div className="space-y-4">
             <div className="flex items-center gap-4">

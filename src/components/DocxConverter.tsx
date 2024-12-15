@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Upload } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,13 +25,12 @@ export default function DocxConverter() {
 
       const functionUrl = `${
         import.meta.env.VITE_SUPABASE_URL
-      }/functions/v1/process-document`;
+      }/functions/v1/process-docx`;
 
       console.log("Attempting to process document:", {
         url: functionUrl,
         documentId,
         textLength: text.length,
-        sessionExists: !!session,
       });
 
       const response = await fetch(functionUrl, {
@@ -40,6 +38,7 @@ export default function DocxConverter() {
         headers: {
           Authorization: `Bearer ${anonKey}`,
           "Content-Type": "application/json",
+          "apikey": anonKey,
         },
         body: JSON.stringify({
           documentId,
@@ -48,7 +47,8 @@ export default function DocxConverter() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
+        const errorData = await response.json().catch(() => ({}));
+        console.error("Error response:", errorData);
         throw new Error(
           `Server responded with ${response.status}: ${
             errorData?.error || response.statusText
@@ -66,7 +66,8 @@ export default function DocxConverter() {
       throw error;
     }
   };
-  const handleFileChange = async (event) => {
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -88,23 +89,13 @@ export default function DocxConverter() {
         return;
       }
 
-      // Upload original file to storage
-      const fileName = `${Math.random().toString(36).substring(2)}.docx`;
-      const filePath = `${session.user.id}/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("documents")
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      // Create document record
+      // Create document record first
       const { data: documentRecord, error: dbError } = await supabase
         .from("documents")
         .insert({
           user_id: session.user.id,
           name: file.name,
-          file_path: filePath,
+          content_preview: extractedText.substring(0, 1000),
         })
         .select()
         .single();
@@ -119,12 +110,7 @@ export default function DocxConverter() {
     } finally {
       setIsProcessing(false);
       // Reset file input
-      const fileInput = document.querySelector(
-        'input[type="file"]'
-      ) as HTMLInputElement;
-      if (fileInput) {
-        fileInput.value = "";
-      }
+      event.target.value = "";
     }
   };
 
@@ -143,10 +129,7 @@ export default function DocxConverter() {
             className="flex-1"
           />
           {isProcessing && (
-            <Button disabled>
-              <Upload className="mr-2 h-4 w-4 animate-spin" />
-              Processing...
-            </Button>
+            <Upload className="mr-2 h-4 w-4 animate-spin" />
           )}
         </div>
 
@@ -158,4 +141,4 @@ export default function DocxConverter() {
       </CardContent>
     </Card>
   );
-}
+};
